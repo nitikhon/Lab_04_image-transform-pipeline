@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lab04/utils"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -19,10 +20,10 @@ func source(names []string) <-chan *utils.Image {
 			}
 
 			// Simulate upload/arrival delay
-			time.Sleep(50 * time.Millisecond)
+			// time.Sleep(50 * time.Millisecond)
 			out <- img
 		}
-		close(out)
+		defer close(out)
 	}()
 	return out
 }
@@ -35,6 +36,15 @@ func resize(in <-chan *utils.Image) <-chan *utils.Image {
 	// - Iterate over 'in' and process images using utils.Resize()
 	// - Send to 'out'
 	// - Ensure 'out' is closed when done
+
+	go func() {
+		defer close(out)
+		for img := range in {
+			utils.Resize(img)
+			out <- img
+		}
+	}()
+
 	return out
 }
 
@@ -46,6 +56,15 @@ func watermark(in <-chan *utils.Image) <-chan *utils.Image {
 	// - Iterate over 'in' and process images using utils.Watermark()
 	// - Send to 'out'
 	// - Ensure 'out' is closed when done
+
+	go func() {
+		defer close(out)
+		for img := range in {
+			utils.Watermark(img)
+			out <- img
+		}
+	}()
+
 	return out
 }
 
@@ -68,7 +87,23 @@ func main() {
 
 	// 4. Sink (Upload)
 	// TODO: Consume images from watermarkChannel and call utils.SaveImage()
-	_ = watermarkChannel // Placeholder to avoid unused variable error
+	// _ = watermarkChannel // Placeholder to avoid unused variable error
+
+	numWorkers := 3
+
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			defer wg.Done()
+			for img := range watermarkChannel {
+				if err := utils.SaveImage(img); err != nil {
+					fmt.Println(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
 
 	fmt.Printf("\nConcurrent Pipeline took: %v\n", time.Since(start))
 }
